@@ -20,6 +20,7 @@ import (
 var version string
 
 var (
+	optDatabase       = flag.String("database", "", "database")
 	optQuery          = flag.String("query", "", "path/to/query.txt")
 	optStat           = flag.String("stat", "/dev/stderr", "output last stat")
 	optOut            = flag.String("out", "/dev/stdout", "path/to/result/file")
@@ -80,10 +81,16 @@ func run() error {
 		workGroup = optWorkGroup
 	}
 
+	var queryExecutionContext *athena.QueryExecutionContext
+	if *optDatabase != "" {
+		queryExecutionContext = &athena.QueryExecutionContext{
+			Database: optDatabase,
+		}
+	}
 	out, err := cl.StartQueryExecutionWithContext(ctx, &athena.StartQueryExecutionInput{
 		ClientRequestToken:       nil,
 		ExecutionParameters:      nil,
-		QueryExecutionContext:    nil,
+		QueryExecutionContext:    queryExecutionContext,
 		QueryString:              aws.String(string(b)),
 		ResultConfiguration:      resultConf,
 		ResultReuseConfiguration: nil,
