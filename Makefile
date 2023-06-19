@@ -7,6 +7,7 @@ endif
 VERSION := $(shell git describe --always)
 GO_BUILD := $(GO_CMD) build -ldflags "-X main.version=$(VERSION)"
 
+DIR_BIN := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/bin
 DIR_DIST = dist
 
 DISTS = \
@@ -25,5 +26,40 @@ clean:
 	/bin/rm -f $(TARGETS)
 	@echo "$@ done." 1>&2
 
-$(DIR_DIST)/athena-query: cmd/athena-query/* $(SRCS_OTHER)
-	$(GO_BUILD) -o $@ ./cmd/athena-query/
+ifeq ($(GORELEASER_CMD),)
+GORELEASER_CMD=$(TOOL_GORELEASER)
+BUILD_DEP=$(TOOL_GORELEASER)
+endif
+
+TOOL_GORELEASER = $(DIR_BIN)/goreleaser
+TOOL_STATICCHECK = $(DIR_BIN)/staticcheck
+TOOLS = \
+	$(TOOL_GORELEASER) \
+	$(TOOL_STATICCHECK)
+
+TOOLS_DEP = Makefile
+
+.PHONY: tools
+tools: $(TOOLS)
+	@echo "$@ done." 1>&2
+
+.PHONY: dist
+dist: $(DISTS)
+	@echo "$@ done." 1>&2
+
+.PHONY: lint
+lint: $(TOOL_STATICCHECK)
+	$(TOOL_STATICCHECK) ./...
+
+$(TOOL_STATICCHECK): export GOBIN=$(DIR_BIN)
+$(TOOL_STATICCHECK): $(TOOLS_DEP)
+	@echo "### `basename $@` install destination=$(GOBIN)" 1>&2
+	CGO_ENABLED=0 $(GO_CMD) install honnef.co/go/tools/cmd/staticcheck@v0.4.3
+
+$(TOOL_GORELEASER): export GOBIN=$(DIR_BIN)
+$(TOOL_GORELEASER): $(TOOLS_DEP)
+	@echo "### `basename $@` install destination=$(GOBIN)" 1>&2
+	$(GO_CMD) install github.com/goreleaser/goreleaser@v1.18.2
+
+$(DIR_DIST)/athena-query: cmd/athena-query/* $(SRCS_OTHER) $(BUILD_DEP)
+	$(GORELEASER_CMD) build --single-target --snapshot --clean -o $@

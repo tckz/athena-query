@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/athena"
 )
 
-var version string
+var version = "dev"
 
 var (
 	optDatabase       = flag.String("database", "", "database")

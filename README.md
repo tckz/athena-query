@@ -35,7 +35,7 @@ $ path/to/athena-query -query q.txt \
 
 # Requirements
 
-* go 1.19+
+* go 1.20
 
 # LICENSE
 
