@@ -12,9 +12,11 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/athena"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/athena"
+	"github.com/aws/aws-sdk-go-v2/service/athena/types"
+	"github.com/cenkalti/backoff/v4"
 )
 
 var version = "dev"
@@ -64,14 +66,16 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
 	defer cancel()
 
-	sess := session.Must(session.NewSessionWithOptions(
-		session.Options{SharedConfigState: session.SharedConfigEnable}))
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(os.Getenv("AWS_REGION")))
+	if err != nil {
+		return fmt.Errorf("config.LoadDefaultConfig: %w", err)
+	}
 
-	cl := athena.New(sess)
+	cl := athena.NewFromConfig(cfg)
 
-	var resultConf *athena.ResultConfiguration
+	var resultConf *types.ResultConfiguration
 	if *optOutputLocation != "" {
-		resultConf = &athena.ResultConfiguration{
+		resultConf = &types.ResultConfiguration{
 			OutputLocation: aws.String(*optOutputLocation),
 		}
 	}
@@ -81,13 +85,13 @@ func run() error {
 		workGroup = optWorkGroup
 	}
 
-	var queryExecutionContext *athena.QueryExecutionContext
+	var queryExecutionContext *types.QueryExecutionContext
 	if *optDatabase != "" {
-		queryExecutionContext = &athena.QueryExecutionContext{
+		queryExecutionContext = &types.QueryExecutionContext{
 			Database: optDatabase,
 		}
 	}
-	out, err := cl.StartQueryExecutionWithContext(ctx, &athena.StartQueryExecutionInput{
+	out, err := cl.StartQueryExecution(ctx, &athena.StartQueryExecutionInput{
 		ClientRequestToken:       nil,
 		ExecutionParameters:      nil,
 		QueryExecutionContext:    queryExecutionContext,
@@ -103,13 +107,26 @@ func run() error {
 	return getResult(ctx, cl, out, fp)
 }
 
-func getResult(ctx context.Context, cl *athena.Athena, stOut *athena.StartQueryExecutionOutput, w io.Writer) error {
+func marshalJSON(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryExecutionOutput, w io.Writer) error {
 	var done bool
 	defer func() {
 		if !done {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			cl.StopQueryExecutionWithContext(ctx, &athena.StopQueryExecutionInput{QueryExecutionId: stOut.QueryExecutionId})
+			out, err := cl.StopQueryExecution(ctx, &athena.StopQueryExecutionInput{QueryExecutionId: stOut.QueryExecutionId})
+			if err != nil {
+				log.Printf("*** StopQueryExecution: %v", err)
+			} else {
+				log.Printf("stopped: %s", marshalJSON(out))
+			}
 		}
 	}()
 
@@ -120,9 +137,9 @@ func getResult(ctx context.Context, cl *athena.Athena, stOut *athena.StartQueryE
 	defer f.Close()
 
 	var stat struct {
-		QueryExecutionId *string                          `json:",omitempty"`
-		Statistics       *athena.QueryExecutionStatistics `json:",omitempty"`
-		LastStatus       *athena.QueryExecutionStatus     `json:",omitempty"`
+		QueryExecutionId *string                         `json:",omitempty"`
+		Statistics       *types.QueryExecutionStatistics `json:",omitempty"`
+		LastStatus       *types.QueryExecutionStatus     `json:",omitempty"`
 	}
 	stat.QueryExecutionId = stOut.QueryExecutionId
 	defer func() {
@@ -136,6 +153,10 @@ func getResult(ctx context.Context, cl *athena.Athena, stOut *athena.StartQueryE
 		csvWriter.Comma = '\t'
 	}
 
+	boff := backoff.NewExponentialBackOff()
+	boff.MaxInterval = time.Second
+	boff.MaxElapsedTime = 0
+	boff.Reset()
 	for {
 		select {
 		case <-ctx.Done():
@@ -143,7 +164,7 @@ func getResult(ctx context.Context, cl *athena.Athena, stOut *athena.StartQueryE
 		default:
 		}
 
-		out, err := cl.GetQueryExecutionWithContext(ctx, &athena.GetQueryExecutionInput{
+		out, err := cl.GetQueryExecution(ctx, &athena.GetQueryExecutionInput{
 			QueryExecutionId: stOut.QueryExecutionId,
 		})
 		if err != nil {
@@ -152,30 +173,27 @@ func getResult(ctx context.Context, cl *athena.Athena, stOut *athena.StartQueryE
 		stat.Statistics = out.QueryExecution.Statistics
 		stat.LastStatus = out.QueryExecution.Status
 
-		log.Printf("status=%s", out.QueryExecution.Status)
+		log.Printf("status=%s", marshalJSON(out.QueryExecution.Status))
 
-		switch *out.QueryExecution.Status.State {
-		case "QUEUED", "RUNNING":
-			if err := func() error {
-				tm := time.NewTimer(1 * time.Second)
-				defer tm.Stop()
-				select {
-				case <-tm.C:
-					return nil
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}(); err != nil {
-				return err
+		switch out.QueryExecution.Status.State {
+		case types.QueryExecutionStateQueued, types.QueryExecutionStateRunning:
+			d := boff.NextBackOff()
+			if d == backoff.Stop {
+				return fmt.Errorf("reached backoff.Stop")
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(d):
 			}
 			continue
-		case "SUCCEEDED":
+		case types.QueryExecutionStateSucceeded:
 			var nextToken *string
 			pc := 0
 			var rec []string
 			for {
 				log.Printf("get result #%d", pc)
-				out, err := cl.GetQueryResultsWithContext(ctx, &athena.GetQueryResultsInput{
+				out, err := cl.GetQueryResults(ctx, &athena.GetQueryResultsInput{
 					NextToken:        nextToken,
 					QueryExecutionId: stOut.QueryExecutionId,
 				})
@@ -207,11 +225,11 @@ func getResult(ctx context.Context, cl *athena.Athena, stOut *athena.StartQueryE
 			}
 			done = true
 			return nil
-		case "FAILED":
+		case types.QueryExecutionStateFailed:
 			done = true
-			return fmt.Errorf("status=%s", out.QueryExecution.Status)
+			return fmt.Errorf("status=%s", marshalJSON(out.QueryExecution.Status))
 		default:
-			return fmt.Errorf("unknown status=%s", out.QueryExecution.Status)
+			return fmt.Errorf("unknown status=%s", marshalJSON(out.QueryExecution.Status))
 		}
 	}
 }
