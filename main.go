@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -19,7 +20,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 )
 
-var version = "dev"
+var version string
 
 var (
 	optDatabase       = flag.String("database", "", "database")
@@ -36,7 +37,11 @@ func main() {
 	flag.Parse()
 
 	if *optVersion {
-		fmt.Println(version)
+		if version != "" {
+			fmt.Println(version)
+		} else if info, ok := debug.ReadBuildInfo(); ok {
+			fmt.Println(info.Main.Version)
+		}
 		return
 	}
 

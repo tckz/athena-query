@@ -1,7 +1,7 @@
 builds:
   - env:
       - CGO_ENABLED=0
-    main: ./cmd/athena-query/
+    main: ./
     binary: athena-query
     flags:
       - -trimpath

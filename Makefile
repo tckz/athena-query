@@ -54,12 +54,12 @@ lint: $(TOOL_STATICCHECK)
 $(TOOL_STATICCHECK): export GOBIN=$(DIR_BIN)
 $(TOOL_STATICCHECK): $(TOOLS_DEP)
 	@echo "### `basename $@` install destination=$(GOBIN)" 1>&2
-	CGO_ENABLED=0 $(GO_CMD) install honnef.co/go/tools/cmd/staticcheck@v0.4.3
+	CGO_ENABLED=0 $(GO_CMD) install honnef.co/go/tools/cmd/staticcheck@v0.4.7
 
 $(TOOL_GORELEASER): export GOBIN=$(DIR_BIN)
 $(TOOL_GORELEASER): $(TOOLS_DEP)
 	@echo "### `basename $@` install destination=$(GOBIN)" 1>&2
-	$(GO_CMD) install github.com/goreleaser/goreleaser@v1.18.2
+	$(GO_CMD) install github.com/goreleaser/goreleaser@v1.26.0
 
-$(DIR_DIST)/athena-query: cmd/athena-query/* $(SRCS_OTHER) $(BUILD_DEP)
+$(DIR_DIST)/athena-query: $(SRCS_OTHER) $(BUILD_DEP)
 	$(GORELEASER_CMD) build --single-target --snapshot --clean -o $@

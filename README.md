@@ -35,7 +35,16 @@ $ path/to/athena-query -query q.txt \
 
 # Requirements
 
-* go 1.20
+* go 1.22
+
+
+# Installation
+
+https://github.com/tckz/athena-query/releases or
+```
+go install github.com/tckz/athena-query@latest
+```
+
 
 # LICENSE
 
