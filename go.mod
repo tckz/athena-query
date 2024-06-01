@@ -3,7 +3,7 @@ module github.com/tckz/athena-query
 go 1.22
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.26.1
+	github.com/aws/aws-sdk-go-v2 v1.27.0
 	github.com/aws/aws-sdk-go-v2/config v1.27.13
 	github.com/aws/aws-sdk-go-v2/service/athena v1.40.5
 	github.com/cenkalti/backoff/v4 v4.3.0
