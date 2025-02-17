@@ -4,9 +4,6 @@ ifeq ($(GO_CMD),)
 GO_CMD:=go
 endif
 
-VERSION := $(shell git describe --always)
-GO_BUILD := $(GO_CMD) build -ldflags "-X main.version=$(VERSION)"
-
 DIR_BIN := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/bin
 DIR_DIST = dist
 
@@ -54,7 +51,7 @@ lint: $(TOOL_STATICCHECK)
 $(TOOL_STATICCHECK): export GOBIN=$(DIR_BIN)
 $(TOOL_STATICCHECK): $(TOOLS_DEP)
 	@echo "### `basename $@` install destination=$(GOBIN)" 1>&2
-	CGO_ENABLED=0 $(GO_CMD) install honnef.co/go/tools/cmd/staticcheck@v0.4.7
+	CGO_ENABLED=0 $(GO_CMD) install honnef.co/go/tools/cmd/staticcheck@latest
 
 $(TOOL_GORELEASER): export GOBIN=$(DIR_BIN)
 $(TOOL_GORELEASER): $(TOOLS_DEP)
