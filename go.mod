@@ -5,7 +5,7 @@ go 1.24
 require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3
 	github.com/aws/aws-sdk-go-v2/config v1.29.8
-	github.com/aws/aws-sdk-go-v2/service/athena v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/athena v1.50.1
 	github.com/cenkalti/backoff/v4 v4.3.0
 )
 
