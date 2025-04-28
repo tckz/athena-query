@@ -1,3 +1,7 @@
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+
+version: 2
+
 builds:
   - env:
       - CGO_ENABLED=0
@@ -14,7 +18,7 @@ builds:
       - amd64
       - arm64
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
