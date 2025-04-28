@@ -6,7 +6,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - -X main.version=v{{.Version}}
+      - -X main.version=v{{.Version}} -s
     goos:
       - darwin
       - linux
