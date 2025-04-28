@@ -158,10 +158,10 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 		csvWriter.Comma = '\t'
 	}
 
-	boff := backoff.NewExponentialBackOff()
-	boff.MaxInterval = time.Second
-	boff.MaxElapsedTime = 0
-	boff.Reset()
+	boff := backoff.NewExponentialBackOff(
+		backoff.WithMaxInterval(time.Second),
+		backoff.WithMaxElapsedTime(0),
+	)
 	for {
 		select {
 		case <-ctx.Done():
@@ -195,6 +195,7 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 		case types.QueryExecutionStateSucceeded:
 			var nextToken *string
 			pc := 0
+			lc := 0
 			var rec []string
 			for {
 				log.Printf("get result #%d", pc)
@@ -220,6 +221,7 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 						return fmt.Errorf("csvWriter.Write: %w", err)
 					}
 					rec = rec[:0]
+					lc++
 				}
 
 				nextToken = out.NextToken
@@ -228,6 +230,7 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 				}
 				pc++
 			}
+			log.Printf("total %d recs written", lc)
 			done = true
 			return nil
 		case types.QueryExecutionStateFailed:
