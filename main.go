@@ -121,10 +121,10 @@ func marshalJSON(v interface{}) string {
 }
 
 func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryExecutionOutput, w io.Writer) error {
-	var done bool
-	defer func() {
-		if !done {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	var queryDone bool
+	defer func(ctx context.Context) {
+		if !queryDone {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			defer cancel()
 			out, err := cl.StopQueryExecution(ctx, &athena.StopQueryExecutionInput{QueryExecutionId: stOut.QueryExecutionId})
 			if err != nil {
@@ -133,7 +133,7 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 				log.Printf("stopped: %s", marshalJSON(out))
 			}
 		}
-	}()
+	}(ctx)
 
 	f, err := os.Create(*optStat)
 	if err != nil {
@@ -158,17 +158,13 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 		csvWriter.Comma = '\t'
 	}
 
-	boff := backoff.NewExponentialBackOff(
-		backoff.WithMaxInterval(time.Second),
-		backoff.WithMaxElapsedTime(0),
-	)
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
+	boff := backoff.WithContext(
+		backoff.NewExponentialBackOff(
+			backoff.WithMaxInterval(time.Second),
+			backoff.WithMaxElapsedTime(0),
+		), ctx)
+	op := func() error {
+		ctx := boff.Context()
 		out, err := cl.GetQueryExecution(ctx, &athena.GetQueryExecutionInput{
 			QueryExecutionId: stOut.QueryExecutionId,
 		})
@@ -182,62 +178,58 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 
 		switch out.QueryExecution.Status.State {
 		case types.QueryExecutionStateQueued, types.QueryExecutionStateRunning:
-			d := boff.NextBackOff()
-			if d == backoff.Stop {
-				return fmt.Errorf("reached backoff.Stop")
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(d):
-			}
-			continue
+			return fmt.Errorf("query still running: state=%s", out.QueryExecution.Status.State)
 		case types.QueryExecutionStateSucceeded:
-			var nextToken *string
-			pc := 0
-			lc := 0
-			var rec []string
-			for {
-				log.Printf("get result #%d", pc)
-				out, err := cl.GetQueryResults(ctx, &athena.GetQueryResultsInput{
-					NextToken:        nextToken,
-					QueryExecutionId: stOut.QueryExecutionId,
-				})
-				if err != nil {
-					return fmt.Errorf("GetQueryResultsWithContext: %w", err)
-				}
-
-				for _, row := range out.ResultSet.Rows {
-					for _, e := range row.Data {
-						if e.VarCharValue == nil {
-							rec = append(rec, "")
-						} else {
-							rec = append(rec, *e.VarCharValue)
-						}
-					}
-
-					err := csvWriter.Write(rec)
-					if err != nil {
-						return fmt.Errorf("csvWriter.Write: %w", err)
-					}
-					rec = rec[:0]
-					lc++
-				}
-
-				nextToken = out.NextToken
-				if nextToken == nil {
-					break
-				}
-				pc++
-			}
-			log.Printf("total %d recs written", lc)
-			done = true
+			queryDone = true
 			return nil
 		case types.QueryExecutionStateFailed:
-			done = true
-			return fmt.Errorf("status=%s", marshalJSON(out.QueryExecution.Status))
+			queryDone = true
+			return backoff.Permanent(fmt.Errorf("status=%s", marshalJSON(out.QueryExecution.Status)))
 		default:
-			return fmt.Errorf("unknown status=%s", marshalJSON(out.QueryExecution.Status))
+			return backoff.Permanent(fmt.Errorf("unknown status=%s", marshalJSON(out.QueryExecution.Status)))
 		}
 	}
+	if err := backoff.Retry(op, boff); err != nil {
+		return err
+	}
+
+	var nextToken *string
+	pc := 0
+	lc := 0
+	var rec []string
+	for {
+		log.Printf("get result #%d", pc)
+		out, err := cl.GetQueryResults(ctx, &athena.GetQueryResultsInput{
+			NextToken:        nextToken,
+			QueryExecutionId: stOut.QueryExecutionId,
+		})
+		if err != nil {
+			return fmt.Errorf("GetQueryResultsWithContext: %w", err)
+		}
+
+		for _, row := range out.ResultSet.Rows {
+			for _, e := range row.Data {
+				if e.VarCharValue == nil {
+					rec = append(rec, "")
+				} else {
+					rec = append(rec, *e.VarCharValue)
+				}
+			}
+
+			err := csvWriter.Write(rec)
+			if err != nil {
+				return fmt.Errorf("csvWriter.Write: %w", err)
+			}
+			rec = rec[:0]
+			lc++
+		}
+
+		nextToken = out.NextToken
+		if nextToken == nil {
+			break
+		}
+		pc++
+	}
+	log.Printf("total %d recs written", lc)
+	return nil
 }
