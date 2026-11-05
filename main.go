@@ -17,7 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/athena"
 	"github.com/aws/aws-sdk-go-v2/service/athena/types"
-	"github.com/cenkalti/backoff/v4"
+	"github.com/cenkalti/backoff/v7"
 )
 
 var version string
@@ -158,18 +158,14 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 		csvWriter.Comma = '\t'
 	}
 
-	boff := backoff.WithContext(
-		backoff.NewExponentialBackOff(
-			backoff.WithMaxInterval(time.Second),
-			backoff.WithMaxElapsedTime(0),
-		), ctx)
-	op := func() error {
-		ctx := boff.Context()
+	boff := backoff.NewExponentialBackOff()
+	boff.MaxInterval = time.Second
+	op := func() (any, error) {
 		out, err := cl.GetQueryExecution(ctx, &athena.GetQueryExecutionInput{
 			QueryExecutionId: stOut.QueryExecutionId,
 		})
 		if err != nil {
-			return fmt.Errorf("GetQueryExecutionWithContext: %w", err)
+			return nil, fmt.Errorf("GetQueryExecutionWithContext: %w", err)
 		}
 		stat.Statistics = out.QueryExecution.Statistics
 		stat.LastStatus = out.QueryExecution.Status
@@ -178,18 +174,21 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 
 		switch out.QueryExecution.Status.State {
 		case types.QueryExecutionStateQueued, types.QueryExecutionStateRunning:
-			return fmt.Errorf("query still running: state=%s", out.QueryExecution.Status.State)
+			return nil, fmt.Errorf("query still running: state=%s", out.QueryExecution.Status.State)
 		case types.QueryExecutionStateSucceeded:
 			queryDone = true
-			return nil
+			return nil, nil
 		case types.QueryExecutionStateFailed:
 			queryDone = true
-			return backoff.Permanent(fmt.Errorf("status=%s", marshalJSON(out.QueryExecution.Status)))
+			return nil, backoff.Permanent(fmt.Errorf("status=%s", marshalJSON(out.QueryExecution.Status)))
 		default:
-			return backoff.Permanent(fmt.Errorf("unknown status=%s", marshalJSON(out.QueryExecution.Status)))
+			return nil, backoff.Permanent(fmt.Errorf("unknown status=%s", marshalJSON(out.QueryExecution.Status)))
 		}
 	}
-	if err := backoff.Retry(op, boff); err != nil {
+	if _, err := backoff.Retry(ctx, op,
+		backoff.WithBackOff(boff),
+		backoff.WithMaxElapsedTime(0),
+	); err != nil {
 		return err
 	}
 
