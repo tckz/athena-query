@@ -4,7 +4,7 @@ ifeq ($(GO_CMD),)
 GO_CMD:=go
 endif
 
-DIR_BIN := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/bin
+DIR_BIN := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))/bin
 DIR_DIST = dist
 
 DISTS = \
@@ -22,6 +22,11 @@ all: $(TARGETS)
 clean:
 	/bin/rm -f $(TARGETS)
 	@echo "$@ done." 1>&2
+
+.PHONY: update-direct-deps
+update-direct-deps:
+	$(GO_CMD) get $$($(GO_CMD) list -f '{{if not (or .Main .Indirect)}}{{.Path}}{{end}}' -m all)
+	$(GO_CMD) mod tidy
 
 ifeq ($(GORELEASER_CMD),)
 GORELEASER_CMD=$(TOOL_GORELEASER)
@@ -56,7 +61,7 @@ $(TOOL_STATICCHECK): $(TOOLS_DEP)
 $(TOOL_GORELEASER): export GOBIN=$(DIR_BIN)
 $(TOOL_GORELEASER): $(TOOLS_DEP)
 	@echo "### `basename $@` install destination=$(GOBIN)" 1>&2
-	$(GO_CMD) install github.com/goreleaser/goreleaser/v2@v2.8.2
+	$(GO_CMD) install github.com/goreleaser/goreleaser/v2@v2.20.0
 
 $(DIR_DIST)/athena-query: $(SRCS_OTHER) $(BUILD_DEP)
 	$(GORELEASER_CMD) build --single-target --snapshot --clean -o $@
