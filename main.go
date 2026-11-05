@@ -112,7 +112,7 @@ func run() error {
 	return getResult(ctx, cl, out, fp)
 }
 
-func marshalJSON(v interface{}) string {
+func marshalJSON(v any) string {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return ""
