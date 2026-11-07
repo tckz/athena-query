@@ -31,7 +31,7 @@ checksum:
 changelog:
   filters:
     exclude:
-      - "^ci:"
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
+      - '^ci(\(.*\))?:'
+      - '^docs(\(.*\))?:'
+      - '^test(\(.*\))?:'
+      - '^chore(\(.*\))?:'

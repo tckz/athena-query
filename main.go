@@ -142,11 +142,12 @@ func getResult(ctx context.Context, cl *athena.Client, stOut *athena.StartQueryE
 	defer f.Close()
 
 	var stat struct {
-		QueryExecutionId *string                         `json:",omitempty"`
+		// Keep the JSON key identical to the AWS SDK field name (QueryExecutionId).
+		QueryExecutionID *string                         `json:"QueryExecutionId,omitempty"`
 		Statistics       *types.QueryExecutionStatistics `json:",omitempty"`
 		LastStatus       *types.QueryExecutionStatus     `json:",omitempty"`
 	}
-	stat.QueryExecutionId = stOut.QueryExecutionId
+	stat.QueryExecutionID = stOut.QueryExecutionId
 	defer func() {
 		enc := json.NewEncoder(f)
 		enc.Encode(stat)
